@@ -25,7 +25,7 @@ class SettingsWindow:
 
         # 开关
         self.enabled_var = tk.BooleanVar(value=self.engine.enabled)
-        ttk.checkbutton(frame,text="开启双击隐藏",variable=self.enabled_var,
+        ttk.Checkbutton(frame,text="开启双击隐藏",variable=self.enabled_var,
                         command=self.update_engine_status).pack(pady=5)
 
         ttk.Label(frame, text="程序正在后台运行", foreground="gray", font=("289-上首江湖书法体", 9)).pack(pady=10)
