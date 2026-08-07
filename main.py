@@ -59,7 +59,7 @@ class DesktopAPP:
         self.engine.stop()
         if self.tray_icon:
             self.tray_icon.stop()
-        if self.ui:
+        if hasattr(self,'ui') and self.ui:
             self.ui.destroy()
         sys.exit(0)
         

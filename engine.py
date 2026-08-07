@@ -3,6 +3,7 @@ import ctypes
 import ctypes.wintypes
 import time
 import threading
+from queue import Queue
 
 user32 = ctypes.windll.user32    # 窗口管理dll
 kernel32 = ctypes.windll.kernel32  # 进程管理dll
@@ -14,13 +15,20 @@ class POINT(ctypes.Structure):
 
 class DesktopEngine:
     def __init__(self):
-        self.clicks = []
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+
+        self.click_queue = Queue()
+        self.last_click_time = 0
         self.enabled = True
+        self.running = False
         self.listener = None
-        self.app_quit_callback = None
+
+        self.desktop_lv = 0
+        self.desktop_sv = 0
+        self.explorer_pid = 0
 
     #前置判断
-    def get_deskop_handles(self):
+    def get_desktop_info(self):
         for root in ["Progman","WorkerW"]:
             hwnd = user32.FindWindowW(root,None)
             while hwnd:
@@ -29,43 +37,64 @@ class DesktopEngine:
                 if sv:
                     # 拿程序选中，刷新权限
                     lv = user32.FindWindowExW(sv, 0, 'SysListView32',None)
-                    return sv, lv
+                    if lv:
+                        self.desktop_lv = lv
+                        self.desktop_sv = sv
+                        pid = ctypes.wintypes.DWORD()
+                        user32.GetWindowThreadProcessId(lv,ctypes.byref(pid))
+                        self.explorer_pid = pid.value
+                        return True
                 # 继续找下一个
                 hwnd = user32.FindWindowExW(0,hwnd,root,None)
-        return 0, 0
+        return False
 
 
     def start(self):
-        if self.listener is None:
-            # 点击绑定事件
-            self.listener = mouse.Listener(on_click=self.onclick)
-            self.listener.start()
+        self.running = True
+        self.get_desktop_info()
+        threading.Thread(target=self._worker_loop, daemon=True).start()
+        self.listener = mouse.Listener(on_click=self.onclick)
+        self.listener.start()
 
     def stop(self):
+        self.running = False
         if self.listener:
             self.listener.stop()
-            self.listener = None
+
+    def _worker_loop(self):
+        """关键：这是你漏掉的后台逻辑处理线程"""
+        while self.running:
+            try:
+                # 获取双击坐标（等待1秒超时，方便循环退出）
+                x, y = self.click_queue.get(timeout=1)
+                
+                # 更新/校验句柄
+                if not user32.IsWindow(self.desktop_lv):
+                    self.get_desktop_info()
+
+                target = user32.WindowFromPoint(POINT(x, y))
+                t_pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(target, ctypes.byref(t_pid))
+
+                # PID 校验（核心：解决其他程序误触发）
+                if t_pid.value == self.explorer_pid:
+                    buf = ctypes.create_unicode_buffer(256)
+                    user32.GetClassNameW(target, buf, 256)
+                    if buf.value in ["SysListView32", "SHELLDLL_DefView", "WorkerW", "Progman"]:
+                        # 图标校验
+                        if not self.is_on_icon(x, y):
+                            self.refresh_desktop()
+            except: # 队列为空
+                continue
 
     # 图标判断函数
     def is_on_icon(self, x, y):
-        # 只要第二个值lv
-        _, lv = self.get_deskop_handles()
-
         # 判断是否拿到与可见
-        if not lv or not user32.IsWindowVisible(lv):
+        if not self.desktop_lv or not user32.IsWindowVisible(self.desktop_lv):
             return False
             
-        # 判断点击位置是否在图标区域
-        target_hwnd = user32.WindowFromPoint(POINT(int(x), int(y)))
-        if target_hwnd != lv:
-            return False
-
-        # 查询explore.exe进程判断是否确实点击某个图标
-        pid = ctypes.wintypes.DWORD()    # 创建unsigned long对象
-        user32.GetWindowThreadProcessId(lv, ctypes.byref(pid))  # SysListView32的explore.exe进程ID写在pid地址里
-
         # 通过pid拿到explore.exe句柄
-        h_proc = kernel32.OpenProcess(0x0038, False, pid) 
+        h_proc = kernel32.OpenProcess(0x0038, False, self.explorer_pid) 
 
         #权限不足或没拿到直接退出
         if not h_proc:
@@ -77,13 +106,14 @@ class DesktopEngine:
             if not mem: return False
             
             pt = POINT(int(x), int(y))
-            user32.ScreenToClient(lv, ctypes.byref(pt))  #绝对坐标转为相对坐标
+            user32.ScreenToClient(self.desktop_lv, ctypes.byref(pt))  #绝对坐标转为相对坐标
 
             #测试点击位置
             kernel32.WriteProcessMemory(h_proc, mem, ctypes.byref(pt), 8, None)
 
-            res = user32.SendMessageW(lv, 0x1012, 0, mem) 
-            return res != -1
+            res = ctypes.wintypes.DWORD()
+            user32.SendMessageTimeoutW(self.desktop_lv, 0x1012, 0, mem, 0x0002, 100, ctypes.byref(res))
+            return res.value != 4294967295
         
         except Exception as e:
             print(f"Engine Error: {e}")
@@ -98,9 +128,10 @@ class DesktopEngine:
 
     # 刷新函数
     def refresh_desktop(self):
-        sv, _ = self.get_deskop_handles()
-        if sv:
-            user32.PostMessageW(sv, 0x0111, 0x7402, 0)
+        if not self.desktop_sv:
+            self.get_desktop_info()
+        if self.desktop_sv:
+            user32.PostMessageW(self.desktop_sv, 0x0111, 0x7402, 0)
 
     # 点击查询函数
     def onclick(self, x, y, button, pressed):
@@ -108,18 +139,8 @@ class DesktopEngine:
         if button == mouse.Button.left and pressed:
             now = time.time()
             # 点击事件处理
-            self.clicks = [t for t in self.clicks if now - t < 0.4]
-            self.clicks.append(now)
-            
-            if len(self.clicks) >= 2:
-                # 检测点击区域是否为桌面窗口相关类名
-                target = user32.WindowFromPoint(POINT(int(x), int(y)))
-                buf = ctypes.create_unicode_buffer(256)
-                user32.GetClassNameW(target, buf, 256)
-                
-                if buf.value in ["SysListView32", "SHELLDLL_DefView", "WorkerW", "Progman"]:
-                    # 检验是否点击图标
-                    if not self.is_on_icon(x, y):
-                        threading.Thread(target=self.refresh_desktop).start()
-                # 刷新检测数据
-                self.clicks = []
+            if now - self.last_click_time < 0.4:
+                self.click_queue.put((int(x),int(y)))
+                self.last_click_time = 0
+            else:
+                self.last_click_time = now
