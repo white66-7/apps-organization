@@ -15,3 +15,9 @@ class DesktopEngine:
 
     def onclick(self, x, y, button, pressed):
         pass
+
+    def toggle(self):
+        pass
+
+    def run_fade_animation(self):
+        pass

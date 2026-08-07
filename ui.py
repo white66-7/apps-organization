@@ -5,6 +5,7 @@ class SettingsWindow:
     def __init__(self,engine):
         self.engine = engine
         self.root = None
+        self.icon_path = "resources/icon.ico"
 
     def show(self):
         if self.root:
@@ -14,6 +15,9 @@ class SettingsWindow:
         self.root = tk.Tk()
         self.root.title("设置")
         self.root.geometry("640x480")
+
+        self.root.iconbitmap(self.icon_path)
+        
         # 禁止改变高度和宽度
         self.root.resizable(False,False)
         # 关闭窗口关联函数
