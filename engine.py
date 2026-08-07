@@ -17,6 +17,8 @@ class DesktopEngine:
     def __init__(self):
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
+        self.click_time_threshold = 0.3
+
         self.click_queue = Queue()
         self.last_click_time = 0
         self.enabled = True
@@ -139,7 +141,7 @@ class DesktopEngine:
         if button == mouse.Button.left and pressed:
             now = time.time()
             # 点击事件处理
-            if now - self.last_click_time < 0.4:
+            if now - self.last_click_time < self.click_time_threshold:
                 self.click_queue.put((int(x),int(y)))
                 self.last_click_time = 0
             else:

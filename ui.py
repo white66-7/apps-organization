@@ -10,7 +10,7 @@ class SettingsWindow:
     def _create_window(self):
         self.root = tk.Tk()
         self.root.title("设置")
-        self.root.geometry("640x480")
+        self.root.geometry("400x350")
         try:
             self.root.iconbitmap(self.icon_path)
         except:
@@ -24,6 +24,32 @@ class SettingsWindow:
         frame = ttk.Frame(self.root, padding="20")
         frame.pack(fill=tk.BOTH,expand=True)
 
+        ttk.Label(frame, text="双击判定时间 (秒):").pack(pady=(15, 0), anchor="w")
+        
+        #时间条
+        time_frame = ttk.Frame(frame)
+        time_frame.pack(fill=tk.X, pady=5)
+        self.time_var = tk.DoubleVar(value=self.engine.click_time_threshold)
+        self.time_scale = tk.Scale(
+            time_frame, 
+            from_=0.1, 
+            to_=1.0, 
+            resolution=0.01,    # 允许小数
+            variable=self.time_var, 
+            orient=tk.HORIZONTAL,
+            showvalue=0,        # 隐藏自带数值
+            command=self.update_time_value,
+            bg="#f0f0f0",       # 匹配背景颜色
+            highlightthickness=0,
+            borderwidth=1
+        )
+        self.time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+
+        self.time_val_label = ttk.Label(time_frame, text=f"{self.time_var.get():.2f}s")
+        self.time_val_label.pack(side=tk.RIGHT)
+
+
+        ttk.Separator(frame, orient='horizontal').pack(fill='x', pady=20)
 
         ttk.Label(frame,text="设置",font=("Microsoft YaHei",12,"bold")).pack(pady=(0,10))
 
@@ -60,6 +86,16 @@ class SettingsWindow:
     def update_engine_status(self):
         self.engine.enabled = self.enabled_var.get()
 
+
+    def update_time_value(self, val):
+        try:
+            float_val = float(val)
+            # 更新界面显示
+            self.time_val_label.config(text=f"{float_val:.2f}s")
+            # 更新引擎中的数值
+            self.engine.click_time_threshold = float_val
+        except:
+            pass
         
     def hide(self):
         if self.root:
