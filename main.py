@@ -65,5 +65,16 @@ class DesktopAPP:
         
 
 if __name__ == "__main__":
+    import os
+    import sys
+    if getattr(sys, 'frozen', False):
+        # 获取 EXE 所在的目录
+        current_dir = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        # 获取脚本所在的目录
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 强制将工作目录切换到程序所在目录
+    os.chdir(current_dir)
     app = DesktopAPP()
     app.run()

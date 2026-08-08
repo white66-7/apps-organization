@@ -1,5 +1,7 @@
 import tkinter as tk
 from tkinter import ttk 
+from auto_start import enable_auto_start, disable_auto_start,is_auto_start_enabled
+
 
 class SettingsWindow:
     def __init__(self,engine):
@@ -53,6 +55,11 @@ class SettingsWindow:
 
         ttk.Label(frame,text="设置",font=("Microsoft YaHei",12,"bold")).pack(pady=(0,10))
 
+        #开机自启动开关
+        self.auto_start_var = tk.BooleanVar(value=is_auto_start_enabled())
+        ttk.Checkbutton(frame, text="开机自动启动", variable=self.auto_start_var,
+                        command=self.update_auto_start_status).pack(pady=5, anchor="w")
+
         # 开关
         self.enabled_var = tk.BooleanVar(value=self.engine.enabled)
         ttk.Checkbutton(frame,text="开启双击隐藏",variable=self.enabled_var,
@@ -96,7 +103,14 @@ class SettingsWindow:
             self.engine.click_time_threshold = float_val
         except:
             pass
-        
+
+    # UI复选框点击时触发
+    def update_auto_start_status(self):
+        if self.auto_start_var.get():
+            enable_auto_start()
+        else:
+            disable_auto_start()
+
     def hide(self):
         if self.root:
             self.root.withdraw()
