@@ -18,7 +18,7 @@ def get_app_command():
         return f'"{python_exe}" "{script_path}"'
 
 def enable_auto_start():
-    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"  # 开启：写入注册表
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"  # 写入注册表
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, get_app_command())
@@ -29,7 +29,7 @@ def enable_auto_start():
         return False
 
 def disable_auto_start():
-    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"  #关闭：从注册表删除
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"  #从注册表删除
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         try:
