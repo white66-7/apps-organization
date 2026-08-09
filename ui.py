@@ -11,8 +11,9 @@ class SettingsWindow:
 
     def _create_window(self):
         self.root = tk.Tk()
+        self.root.withdraw() 
         self.root.title("设置")
-        self.root.geometry("400x350")
+        self.root.geometry("400x420")
         try:
             self.root.iconbitmap(self.icon_path)
         except:
@@ -63,7 +64,11 @@ class SettingsWindow:
         # 开关
         self.enabled_var = tk.BooleanVar(value=self.engine.enabled)
         ttk.Checkbutton(frame,text="开启双击隐藏",variable=self.enabled_var,
-                        command=self.update_engine_status).pack(pady=5)
+                        command=self.update_engine_status).pack(pady=5,anchor="w")
+
+        self.anim_var = tk.BooleanVar(value=self.engine.animation_enabled)
+        ttk.Checkbutton(frame, text="开启淡出动画效果", variable=self.anim_var,
+                        command=self.update_animation_status).pack(pady=5, anchor="w")
 
         ttk.Label(frame, text="程序正在后台运行", foreground="gray").pack(pady=10)
 
@@ -78,6 +83,12 @@ class SettingsWindow:
         else:
             self.root.after(0, self._force_focus)
 
+    def init_hidden(self):
+        """新增：初始化但不显示窗口，仅启动 mainloop"""
+        if self.root is None:
+            self._create_window()
+            self.root.withdraw() # 立即隐藏
+            self.root.mainloop()
 
     def _force_focus(self):
         if self.root:
@@ -93,6 +104,10 @@ class SettingsWindow:
     def update_engine_status(self):
         self.engine.enabled = self.enabled_var.get()
 
+
+    def update_animation_status(self):
+        """同步动画开关到引擎"""
+        self.engine.animation_enabled = self.anim_var.get()
 
     def update_time_value(self, val):
         try:

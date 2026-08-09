@@ -7,14 +7,15 @@ from PIL import Image
 import ctypes
 
 def resource_path(relative_path):
-    if getattr(sys, '_MEIPASS', False):
-        # 打包后的临时目录
+    """ 获取资源绝对路径，兼容开发环境和 PyInstaller 打包环境 """
+    try:
+        # PyInstaller 创建临时文件夹并把路径存储在 _MEIPASS 中
         base_path = sys._MEIPASS
-    else:
-        # 开发环境
-        base_path = os.path.abspath(".")
+    except Exception:
+        # 开发环境下，使用当前文件所在目录
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
     return os.path.join(base_path, relative_path)
-
 
 class DesktopAPP:
     def __init__(self):
@@ -56,7 +57,7 @@ class DesktopAPP:
         tray_thread.start()
 
         #主设置界面-图形化界面
-        self.ui.show()
+        self.ui.init_hidden()
 
 
 

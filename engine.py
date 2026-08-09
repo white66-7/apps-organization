@@ -8,6 +8,25 @@ from queue import Queue
 user32 = ctypes.windll.user32    # 窗口管理dll
 kernel32 = ctypes.windll.kernel32  # 进程管理dll
 
+gdi32 = ctypes.windll.gdi32 # 新增：绘图库
+
+# 新增窗口回调函数类型定义
+WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_int64, ctypes.wintypes.HWND, ctypes.wintypes.UINT, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+
+# 新增绘图相关结构体
+class RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+class PAINTSTRUCT(ctypes.Structure):
+    _fields_ = [("hdc", ctypes.wintypes.HDC), ("fErase", ctypes.wintypes.BOOL), ("rcPaint", RECT), 
+                ("fRestore", ctypes.wintypes.BOOL), ("fIncUpdate", ctypes.wintypes.BOOL), ("rgbReserved", ctypes.c_byte * 32)]
+
+class WNDCLASSW(ctypes.Structure):
+    _fields_ = [("style", ctypes.wintypes.UINT), ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int), 
+                ("cbWndExtra", ctypes.c_int), ("hInstance", ctypes.wintypes.HINSTANCE), ("hIcon", ctypes.wintypes.HICON),
+                ("hCursor", ctypes.wintypes.HANDLE), ("hbrBackground", ctypes.wintypes.HBRUSH),
+                ("lpszMenuName", ctypes.wintypes.LPCWSTR), ("lpszClassName", ctypes.wintypes.LPCWSTR)]
+
 
 class POINT(ctypes.Structure):
     _fields_ = [("x",ctypes.wintypes.LONG),("y",ctypes.wintypes.LONG)]
@@ -28,6 +47,18 @@ class DesktopEngine:
         self.desktop_lv = 0
         self.desktop_sv = 0
         self.explorer_pid = 0
+
+        self.animation_enabled = True
+
+        self.fade_steps = 15      # 动画帧数
+        self.is_animating = False # 防止动画冲突
+        self.registered = False   # 窗口类注册标志
+        self.hdc_mem = 0          # 内存画板
+        self.v_w = 0              # 屏幕宽
+        self.v_h = 0              # 屏幕高
+        
+        # 保持对回调函数的引用，防止被 Python 垃圾回收导致崩溃
+        self.wnd_proc_delegate = WNDPROC(self._static_wnd_proc)
 
     #前置判断
     def get_desktop_info(self):
@@ -62,6 +93,10 @@ class DesktopEngine:
         self.running = False
         if self.listener:
             self.listener.stop()
+        # 新增：释放绘图资源
+        if self.hdc_mem:
+            gdi32.DeleteDC(self.hdc_mem)
+            self.hdc_mem = 0
 
     def _worker_loop(self):
         """关键：这是你漏掉的后台逻辑处理线程"""
@@ -85,7 +120,10 @@ class DesktopEngine:
                     if buf.value in ["SysListView32", "SHELLDLL_DefView", "WorkerW", "Progman"]:
                         # 图标校验
                         if not self.is_on_icon(x, y):
-                            self.refresh_desktop()
+                            if self.animation_enabled:
+                                threading.Thread(target=self.run_fade_animation, daemon=True).start()
+                            else:
+                                self.refresh_desktop()
             except: # 队列为空
                 continue
 
@@ -146,3 +184,81 @@ class DesktopEngine:
                 self.last_click_time = 0
             else:
                 self.last_click_time = now
+
+    def _static_wnd_proc(self, hwnd, msg, wp, lp):
+        """遮罩窗口的绘图回调"""
+        if msg == 0x000F: # WM_PAINT
+            ps = PAINTSTRUCT()
+            hdc = user32.BeginPaint(hwnd, ctypes.byref(ps))
+            if self.hdc_mem:
+                # 将截好的屏幕图贴到遮罩窗口上
+                gdi32.BitBlt(hdc, 0, 0, self.v_w, self.v_h, self.hdc_mem, 0, 0, 0x00CC0020)
+            user32.EndPaint(hwnd, ctypes.byref(ps))
+            return 0
+        return user32.DefWindowProcW(hwnd, msg, wp, lp)
+
+    def run_fade_animation(self):
+        """核心动画流程"""
+        if self.is_animating: return
+        self.is_animating = True
+        
+        # 获取全屏尺寸（支持多屏）
+        v_left = user32.GetSystemMetrics(76)
+        v_top = user32.GetSystemMetrics(77)
+        self.v_w = user32.GetSystemMetrics(78)
+        self.v_h = user32.GetSystemMetrics(79)
+        
+        try:
+            # 1. 抓取切换前的屏幕快照
+            hdc_screen = user32.GetDC(0)
+            if not self.hdc_mem:
+                self.hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
+            
+            new_hbm = gdi32.CreateCompatibleBitmap(hdc_screen, self.v_w, self.v_h)
+            old_hbm = gdi32.SelectObject(self.hdc_mem, new_hbm)
+            if old_hbm: gdi32.DeleteObject(old_hbm)
+            
+            gdi32.BitBlt(self.hdc_mem, 0, 0, self.v_w, self.v_h, hdc_screen, v_left, v_top, 0x00CC0020)
+            user32.ReleaseDC(0, hdc_screen)
+
+            # 2. 注册并创建全屏遮罩窗口
+            cls_name = "DesktopFadeMask"
+            if not self.registered:
+                wc = WNDCLASSW()
+                wc.lpfnWndProc = self.wnd_proc_delegate
+                wc.lpszClassName = cls_name
+                wc.hInstance = kernel32.GetModuleHandleW(None)
+                wc.hCursor = user32.LoadCursorW(0, 32512)
+                user32.RegisterClassW(ctypes.byref(wc))
+                self.registered = True
+
+            hwnd_mask = user32.CreateWindowExW(
+                0x80000 | 0x8 | 0x20 | 0x80, # WS_EX_LAYERED | TOPMOST | TRANSPARENT
+                cls_name, None, 0x80000000, 
+                v_left, v_top, self.v_w, self.v_h, 0, 0, kernel32.GetModuleHandleW(None), 0
+            )
+            
+            user32.SetLayeredWindowAttributes(hwnd_mask, 0, 255, 0x2)
+            user32.ShowWindow(hwnd_mask, 5)
+            user32.UpdateWindow(hwnd_mask) # 强制立即显示截图
+            time.sleep(0.01) # 微小停顿确保视觉覆盖
+
+            # 3. 此时屏幕已被截图遮盖，现在静默切换真实的图标显隐
+            self.refresh_desktop()
+
+            # 4. 遮罩层平滑淡出，露出下方切换后的桌面
+            for i in range(self.fade_steps):
+                alpha = int(255 * (1 - (i / self.fade_steps)**2))
+                user32.SetLayeredWindowAttributes(hwnd_mask, 0, max(0, alpha), 0x2)
+                
+                # 维持窗口消息循环，防止白屏
+                msg = ctypes.wintypes.MSG()
+                while user32.PeekMessageW(ctypes.byref(msg), hwnd_mask, 0, 0, 1):
+                    user32.TranslateMessage(ctypes.byref(msg))
+                    user32.DispatchMessageW(ctypes.byref(msg))
+                time.sleep(0.01)
+            
+            user32.DestroyWindow(hwnd_mask)
+            
+        finally:
+            self.is_animating = False
