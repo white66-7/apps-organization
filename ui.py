@@ -4,10 +4,10 @@ from auto_start import enable_auto_start, disable_auto_start,is_auto_start_enabl
 
 
 class SettingsWindow:
-    def __init__(self,engine):
+    def __init__(self, engine, icon_path="resources/icon.ico"):
         self.engine = engine
         self.root = None
-        self.icon_path = "resources/icon.ico"
+        self.icon_path = icon_path
 
     def _create_window(self):
         self.root = tk.Tk()

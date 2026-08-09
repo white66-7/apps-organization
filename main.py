@@ -6,6 +6,15 @@ import sys
 from PIL import Image
 import ctypes
 
+def resource_path(relative_path):
+    if getattr(sys, '_MEIPASS', False):
+        # 打包后的临时目录
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 
 class DesktopAPP:
     def __init__(self):
@@ -14,9 +23,10 @@ class DesktopAPP:
 
         self.engine = DesktopEngine()
         self.engine.app_quit_callback = self.quit_all
-        self.ui = SettingsWindow(self.engine)
-        self.icon_path = "resources/icon.ico"
+        self.icon_path = resource_path("resources/icon.ico")
+        self.ui = SettingsWindow(self.engine, icon_path=self.icon_path)
         self.tray_icon = None
+
 
 
     # 创造托盘图标
