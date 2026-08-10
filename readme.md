@@ -2,7 +2,8 @@
 
 DesktopHelper42 是一款轻量级的 Windows 桌面美化工具。通过双击桌面空白处快速隐藏或显示桌面图标功能。
 
-<img width="400" height="300" alt="video-to-gif-1786348262200" src="https://github.com/user-attachments/assets/10a664de-9aaa-4fbe-a994-c3b590f9b17b" />
+<img width="400" height="300" alt="video-to-gif-1786348654977" src="https://github.com/user-attachments/assets/3ce0deef-efad-43f2-a0a6-1430e6980cd0" />
+
 
 ## ✨ 功能特性
 
