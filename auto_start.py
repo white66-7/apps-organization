@@ -1,6 +1,8 @@
 import winreg
 import sys
 import os
+import logging
+
 
 APP_NAME = "DesktopIconHelper"
 
@@ -23,9 +25,10 @@ def enable_auto_start():
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, get_app_command())
         winreg.CloseKey(key)
+        logging.error("成功写入启动注册表")
         return True
     except Exception as e:
-        print(f"开启自启动失败: {e}")
+        logging.error(f"写入启动注册表失败：{e}")
         return False
 
 def disable_auto_start():

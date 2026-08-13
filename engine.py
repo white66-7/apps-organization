@@ -4,7 +4,10 @@ import ctypes.wintypes
 import time
 import threading
 from queue import Queue
+import logging
+import os
 
+LOG_NAME = "日志.log"
 user32 = ctypes.windll.user32    # 窗口管理dll
 kernel32 = ctypes.windll.kernel32  # 进程管理dll
 
@@ -60,6 +63,7 @@ class DesktopEngine:
         # 保持对回调函数的引用，防止被 Python 垃圾回收导致崩溃
         self.wnd_proc_delegate = WNDPROC(self._static_wnd_proc)
 
+        self.log_name = LOG_NAME
     #前置判断
     def get_desktop_info(self):
         for root in ["Progman","WorkerW"]:
@@ -76,6 +80,7 @@ class DesktopEngine:
                         pid = ctypes.wintypes.DWORD()
                         user32.GetWindowThreadProcessId(lv,ctypes.byref(pid))
                         self.explorer_pid = pid.value
+                        logging.info(f"成功获取桌面句柄: LV={hex(lv)}, PID={self.explorer_pid}")
                         return True
                 # 继续找下一个
                 hwnd = user32.FindWindowExW(0,hwnd,root,None)
@@ -99,7 +104,7 @@ class DesktopEngine:
             self.hdc_mem = 0
 
     def _worker_loop(self):
-        """关键：这是你漏掉的后台逻辑处理线程"""
+        """后台逻辑处理线程"""
         while self.running:
             try:
                 # 获取双击坐标（等待1秒超时，方便循环退出）
@@ -113,7 +118,7 @@ class DesktopEngine:
                 t_pid = ctypes.wintypes.DWORD()
                 user32.GetWindowThreadProcessId(target, ctypes.byref(t_pid))
 
-                # PID 校验（核心：解决其他程序误触发）
+                # PID 校验
                 if t_pid.value == self.explorer_pid:
                     buf = ctypes.create_unicode_buffer(256)
                     user32.GetClassNameW(target, buf, 256)
@@ -156,7 +161,7 @@ class DesktopEngine:
             return res.value != 4294967295
         
         except Exception as e:
-            print(f"Engine Error: {e}")
+            logging.error(f"Engine Error: {e}",exc_info=True)
             return False
         finally:
             if mem:
@@ -262,3 +267,50 @@ class DesktopEngine:
             
         finally:
             self.is_animating = False
+
+    def get_log_size_str(self):
+        """获取日志文件大小"""
+        log_path = self.log_name
+        if not os.path.exists(log_path):
+            return "0 B"
+        try:
+            size_bytes = os.path.getsize(log_path)
+            if size_bytes < 1024:
+                return f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                return f"{size_bytes / 1024:.1f} KB"
+            else:
+                return f"{size_bytes / (1024 * 1024):.1f} MB"
+        except:
+            return "未知"
+
+    def open_dir(self):
+
+        def _async_open():
+            log_path = self.log_name
+            try:
+                if os.path.exists(log_path):
+                    # 直接用记事本打开日志文件
+                    os.startfile(log_path)
+                else:
+                    # 如果文件没生成，打开当前程序所在的文件夹
+                    os.startfile(os.getcwd())
+            except Exception as e:
+            # 至少尝试打开当前文件
+                logging.error(f"无法打开日志文件: {e}")
+                os.startfile(os.getcwd())
+        threading.Thread(target=_async_open, daemon=True).start()
+
+
+    def clear_log(self):
+        """清空日志内容"""
+        def _async_clear():
+            log_path = self.log_name
+            try:
+                # truncate 是稳妥的
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.truncate()
+            except Exception as e:
+                logging.error(f"清空日志失败: {e}")
+        
+        threading.Thread(target=_async_clear, daemon=True).start()

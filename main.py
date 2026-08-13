@@ -3,11 +3,14 @@ from engine import DesktopEngine
 import pystray
 import threading
 import sys
+import os
 from PIL import Image
 import ctypes
+import logging
+from logging.handlers import RotatingFileHandler
 
 def resource_path(relative_path):
-    """ 获取资源绝对路径，兼容开发环境和 PyInstaller 打包环境 """
+    """ 获取资源绝对路径 """
     try:
         # PyInstaller 创建临时文件夹并把路径存储在 _MEIPASS 中
         base_path = sys._MEIPASS
@@ -16,6 +19,20 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     
     return os.path.join(base_path, relative_path)
+
+def setup_logging():
+    log_path = "日志.log"
+    handler = RotatingFileHandler(log_path, maxBytes=1*1024*1024, backupCount=1, encoding='utf-8')
+    # 创建日志记录器
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=[
+            handler, # 保存到文件
+            logging.StreamHandler() # 同时打印到控制台
+        ]
+    )
+
 
 class DesktopAPP:
     def __init__(self):
@@ -68,6 +85,7 @@ class DesktopAPP:
 
     def quit_all(self,icon=None,item=None):
         self.engine.stop()
+        logging.info("收到退出信号，正在关闭程序...")
         if self.tray_icon:
             self.tray_icon.stop()
         if hasattr(self,'ui') and self.ui:
@@ -75,15 +93,17 @@ class DesktopAPP:
         sys.exit(0)
         
 
+
 if __name__ == "__main__":
-    import os
-    import sys
     if getattr(sys, 'frozen', False):
         # 获取 EXE 所在的目录
         current_dir = os.path.dirname(os.path.abspath(sys.executable))
     else:
         # 获取脚本所在的目录
         current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    setup_logging()
+    logging.info("程序启动...")
     
     # 强制将工作目录切换到程序所在目录
     os.chdir(current_dir)
