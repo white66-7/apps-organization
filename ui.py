@@ -13,7 +13,7 @@ class SettingsWindow:
         self.root = tk.Tk()
         self.root.withdraw() 
         self.root.title("设置")
-        self.root.geometry("440x270")
+        self.root.geometry("440x275")
         try:
             self.root.iconbitmap(self.icon_path)
         except:
