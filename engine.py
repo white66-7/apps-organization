@@ -7,7 +7,6 @@ from queue import Queue
 import logging
 import os
 
-LOG_NAME = "日志.log"
 user32 = ctypes.windll.user32    # 窗口管理dll
 kernel32 = ctypes.windll.kernel32  # 进程管理dll
 
@@ -34,9 +33,8 @@ class WNDCLASSW(ctypes.Structure):
 class POINT(ctypes.Structure):
     _fields_ = [("x",ctypes.wintypes.LONG),("y",ctypes.wintypes.LONG)]
 
-
 class DesktopEngine:
-    def __init__(self):
+    def __init__(self,log_path, data_dir):
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
         self.click_time_threshold = 0.3
@@ -63,7 +61,8 @@ class DesktopEngine:
         # 保持对回调函数的引用，防止被 Python 垃圾回收导致崩溃
         self.wnd_proc_delegate = WNDPROC(self._static_wnd_proc)
 
-        self.log_name = LOG_NAME
+        self.log_path = log_path
+        self.data_dir = data_dir
     #前置判断
     def get_desktop_info(self):
         for root in ["Progman","WorkerW"]:
@@ -270,11 +269,10 @@ class DesktopEngine:
 
     def get_log_size_str(self):
         """获取日志文件大小"""
-        log_path = self.log_name
-        if not os.path.exists(log_path):
+        if not os.path.exists(self.log_path):
             return "0 B"
         try:
-            size_bytes = os.path.getsize(log_path)
+            size_bytes = os.path.getsize(self.log_path)
             if size_bytes < 1024:
                 return f"{size_bytes} B"
             elif size_bytes < 1024 * 1024:
@@ -285,30 +283,25 @@ class DesktopEngine:
             return "未知"
 
     def open_dir(self):
-
         def _async_open():
-            log_path = self.log_name
             try:
-                if os.path.exists(log_path):
+                if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > 0:
                     # 直接用记事本打开日志文件
-                    os.startfile(log_path)
+                    os.startfile(self.log_path)
                 else:
                     # 如果文件没生成，打开当前程序所在的文件夹
-                    os.startfile(os.getcwd())
+                    os.startfile(self.data_dir)
             except Exception as e:
-            # 至少尝试打开当前文件
                 logging.error(f"无法打开日志文件: {e}")
-                os.startfile(os.getcwd())
         threading.Thread(target=_async_open, daemon=True).start()
 
 
     def clear_log(self):
         """清空日志内容"""
         def _async_clear():
-            log_path = self.log_name
             try:
                 # truncate 是稳妥的
-                with open(log_path, 'w', encoding='utf-8') as f:
+                with open(self.log_path, 'w', encoding='utf-8') as f:
                     f.truncate()
             except Exception as e:
                 logging.error(f"清空日志失败: {e}")
