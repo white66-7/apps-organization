@@ -3,9 +3,10 @@ import ctypes
 import ctypes.wintypes
 import time
 import threading
-from queue import Queue
+from queue import Queue, Empty
 import logging
 import os
+import subprocess
 
 user32 = ctypes.windll.user32    # 窗口管理dll
 kernel32 = ctypes.windll.kernel32  # 进程管理dll
@@ -51,7 +52,6 @@ class DesktopEngine:
 
         self.animation_enabled = True
 
-        self.fade_steps = 15      # 动画帧数
         self.is_animating = False # 防止动画冲突
         self.registered = False   # 窗口类注册标志
         self.hdc_mem = 0          # 内存画板
@@ -92,6 +92,7 @@ class DesktopEngine:
         threading.Thread(target=self._worker_loop, daemon=True).start()
         self.listener = mouse.Listener(on_click=self.onclick)
         self.listener.start()
+        logging.info("DesktopEngine42启动完成")
 
     def stop(self):
         self.running = False
@@ -101,6 +102,7 @@ class DesktopEngine:
         if self.hdc_mem:
             gdi32.DeleteDC(self.hdc_mem)
             self.hdc_mem = 0
+        logging.info("DesktopEngine42已停止")
 
     def _worker_loop(self):
         """后台逻辑处理线程"""
@@ -111,6 +113,7 @@ class DesktopEngine:
                 
                 # 更新/校验句柄
                 if not user32.IsWindow(self.desktop_lv):
+                    logging.error("获取桌面句柄失败")
                     self.get_desktop_info()
 
                 target = user32.WindowFromPoint(POINT(x, y))
@@ -124,13 +127,23 @@ class DesktopEngine:
                     if buf.value in ["SysListView32", "SHELLDLL_DefView", "WorkerW", "Progman"]:
                         # 图标校验
                         if not self.is_on_icon(x, y):
+                            logging.info(f"双击空白处({x},{y})")
                             if self.animation_enabled:
                                 threading.Thread(target=self.run_fade_animation, daemon=True).start()
                             else:
                                 self.refresh_desktop()
-            except: # 队列为空
-                continue
-
+                        else:
+                            logging.debug(f"点击在图标上")
+                    else:
+                        logging.info(f"窗口类名'{buf.value}'")
+                        continue
+                else:
+                    logging.info(f"点击窗口PID({t_pid.value})")
+                    continue
+            except Empty:
+                continue  # 正常超时等待
+            except Exception as e:
+                logging.error(f"工作线程异常: {e}", exc_info=True)
     # 图标判断函数
     def is_on_icon(self, x, y):
         # 判断是否拿到与可见
@@ -142,12 +155,15 @@ class DesktopEngine:
 
         #权限不足或没拿到直接退出
         if not h_proc:
+            logging.error(f"OpenProcess失败(PID={self.explorer_pid}), 错误码:{kernel32.GetLastError()}")
             return False
             
         mem = None
         try:
             mem = kernel32.VirtualAllocEx(h_proc, None, 16, 0x1000, 0x04) # 在explore.exe申请16字节的地址
-            if not mem: return False
+            if not mem: 
+                logging.error(f"VirtualAllocEx 内存分配失败, 错误码: {kernel32.GetLastError()}")
+                return False
             
             pt = POINT(int(x), int(y))
             user32.ScreenToClient(self.desktop_lv, ctypes.byref(pt))  #绝对坐标转为相对坐标
@@ -176,6 +192,7 @@ class DesktopEngine:
             self.get_desktop_info()
         if self.desktop_sv:
             user32.PostMessageW(self.desktop_sv, 0x0111, 0x7402, 0)
+            logging.info("成功发送刷新消息")
 
     # 点击查询函数
     def onclick(self, x, y, button, pressed):
@@ -205,12 +222,26 @@ class DesktopEngine:
         """核心动画流程"""
         if self.is_animating: return
         self.is_animating = True
+
+
+        is_showing = not bool(user32.IsWindowVisible(self.desktop_lv))
         
         # 获取全屏尺寸（支持多屏）
         v_left = user32.GetSystemMetrics(76)
         v_top = user32.GetSystemMetrics(77)
         self.v_w = user32.GetSystemMetrics(78)
         self.v_h = user32.GetSystemMetrics(79)
+
+        if is_showing:
+            # 6帧，三次方
+            steps = 3
+            power = 4
+            step_delay = 0.001
+        else:
+            # 15帧，二次方
+            steps = 28
+            power = 2
+            step_delay = 0.015
         
         try:
             # 1. 抓取切换前的屏幕快照
@@ -241,18 +272,21 @@ class DesktopEngine:
                 cls_name, None, 0x80000000, 
                 v_left, v_top, self.v_w, self.v_h, 0, 0, kernel32.GetModuleHandleW(None), 0
             )
+
+            if not hwnd_mask:
+                self.refresh_desktop()
+                return
             
             user32.SetLayeredWindowAttributes(hwnd_mask, 0, 255, 0x2)
             user32.ShowWindow(hwnd_mask, 5)
             user32.UpdateWindow(hwnd_mask) # 强制立即显示截图
-            time.sleep(0.01) # 微小停顿确保视觉覆盖
 
-            # 3. 此时屏幕已被截图遮盖，现在静默切换真实的图标显隐
+            # 此时屏幕被截图遮盖，静默切换真实的图标显隐
             self.refresh_desktop()
 
-            # 4. 遮罩层平滑淡出，露出下方切换后的桌面
-            for i in range(self.fade_steps):
-                alpha = int(255 * (1 - (i / self.fade_steps)**2))
+            # 遮罩层平滑淡出，露出下方切换后的桌面
+            for i in range(steps):
+                alpha = int(255 * (1 - (i / steps) ** power))
                 user32.SetLayeredWindowAttributes(hwnd_mask, 0, max(0, alpha), 0x2)
                 
                 # 维持窗口消息循环，防止白屏
@@ -260,7 +294,7 @@ class DesktopEngine:
                 while user32.PeekMessageW(ctypes.byref(msg), hwnd_mask, 0, 0, 1):
                     user32.TranslateMessage(ctypes.byref(msg))
                     user32.DispatchMessageW(ctypes.byref(msg))
-                time.sleep(0.01)
+                time.sleep(step_delay)
             
             user32.DestroyWindow(hwnd_mask)
             
@@ -283,17 +317,14 @@ class DesktopEngine:
             return "未知"
 
     def open_dir(self):
-        def _async_open():
-            try:
-                if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > 0:
-                    # 直接用记事本打开日志文件
-                    os.startfile(self.log_path)
-                else:
-                    # 如果文件没生成，打开当前程序所在的文件夹
-                    os.startfile(self.data_dir)
-            except Exception as e:
-                logging.error(f"无法打开日志文件: {e}")
-        threading.Thread(target=_async_open, daemon=True).start()
+        try:
+            if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > 0:
+                subprocess.Popen(['explorer', self.log_path])
+            else:
+                # 如果文件没生成，打开当前程序所在的文件夹
+                subprocess.Popen(['explorer', self.data_dir])
+        except Exception as e:
+            logging.error(f"无法打开日志文件: {e}")
 
 
     def clear_log(self):
