@@ -70,15 +70,22 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def setup_logging():
-    handler = RotatingFileHandler(LOG_PATH, maxBytes=1*1024*1024, backupCount=1, encoding='utf-8')
-    # 创建日志记录器
+    # 文件处理器（始终保留）
+    file_handler = RotatingFileHandler(
+        LOG_PATH, 
+        maxBytes=1*1024*1024, 
+        backupCount=1, 
+        encoding='utf-8'
+    )
+    handlers = [file_handler]
+    # 仅在非打包环境添加控制台输出
+    if not getattr(sys, 'frozen', False):
+        handlers.append(logging.StreamHandler())
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
-        handlers=[
-            handler, # 保存到文件
-            logging.StreamHandler() # 同时打印到控制台
-        ]
+        handlers=handlers
     )
 
 
