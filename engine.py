@@ -98,8 +98,9 @@ class DesktopEngine:
         self.running = False
         if self.listener:
             self.listener.stop()
-        # 新增：释放绘图资源
-        if self.hdc_mem:
+        # 释放绘图资源。若动画线程仍在运行，则由动画的 finally 负责释放，
+        # 避免 stop() 提前释放正在被 BitBlt 使用中的 DC 导致崩溃。
+        if not self.is_animating and self.hdc_mem:
             gdi32.DeleteDC(self.hdc_mem)
             self.hdc_mem = 0
         logging.info("DesktopEngine42已停止")
@@ -243,18 +244,20 @@ class DesktopEngine:
             power = 2
             step_delay = 0.015
         
+        hdc_screen = None
         try:
             # 1. 抓取切换前的屏幕快照
             hdc_screen = user32.GetDC(0)
             if not self.hdc_mem:
                 self.hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
-            
+
             new_hbm = gdi32.CreateCompatibleBitmap(hdc_screen, self.v_w, self.v_h)
+            if not new_hbm:
+                raise OSError(f"CreateCompatibleBitmap 失败, 错误码: {kernel32.GetLastError()}")
             old_hbm = gdi32.SelectObject(self.hdc_mem, new_hbm)
             if old_hbm: gdi32.DeleteObject(old_hbm)
-            
+
             gdi32.BitBlt(self.hdc_mem, 0, 0, self.v_w, self.v_h, hdc_screen, v_left, v_top, 0x00CC0020)
-            user32.ReleaseDC(0, hdc_screen)
 
             # 2. 注册并创建全屏遮罩窗口
             cls_name = "DesktopFadeMask"
@@ -299,7 +302,17 @@ class DesktopEngine:
             user32.DestroyWindow(hwnd_mask)
             
         finally:
+            # 无论成功或异常，都释放屏幕 DC，避免 GDI 句柄泄漏
+            if hdc_screen:
+                try:
+                    user32.ReleaseDC(0, hdc_screen)
+                except Exception:
+                    pass
             self.is_animating = False
+            # 若 stop() 在此动画运行期间被调用，则由这里统一释放绘图资源
+            if not self.running and self.hdc_mem:
+                gdi32.DeleteDC(self.hdc_mem)
+                self.hdc_mem = 0
 
     def get_log_size_str(self):
         """获取日志文件大小"""

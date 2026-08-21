@@ -119,8 +119,24 @@ class SettingsWindow:
         self.root.after(100, self.update_log_info_display)
 
     def show(self):
+        """线程安全的显示入口：把真正的工作调度到 Tk 主线程执行。
+
+        本方法可能从托盘线程、套接字监听线程或 Tk 主线程被调用。
+        Tkinter 非线程安全，任何对控件/root 的访问都应回到主线程，
+        这里统一通过 after 委托给 show_sync。
+        """
+        if self.root is None:
+            return  # 罕见竞态：拒绝在非主线程创建窗口，由 init_hidden 兜底
+        try:
+            self.root.after(0, self.show_sync)
+        except Exception as e:
+            logging.error(f"调度显示窗口失败: {e}")
+
+    def show_sync(self):
+        """必须在 Tk 主线程内调用：显示窗口，必要时先创建。"""
         if self.root is None:
             self._create_window()
+            self.root.deiconify()
             self.root.mainloop()
         else:
             self.update_log_info_display()

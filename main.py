@@ -37,20 +37,30 @@ def start_instance_listener(app_instance):
                     with conn:
                         data = conn.recv(1024)
                         if data == b"show_ui":
-                            #使用 after 确保在 Tkinter 主线程中执行 UI 操作
-                            if app_instance.ui:
-                                app_instance.ui.root.after(0, app_instance.show_ui)
+                            # 使用 after 确保在 Tkinter 主线程中执行 UI 操作
+                            root = getattr(app_instance.ui, "root", None)
+                            if root is not None:
+                                root.after(0, app_instance.show_ui)
+                            else:
+                                # root 尚未创建（启动初期竞态的极端情况），直接显示
+                                app_instance.show_ui()
         except Exception as e:
             logging.error(f"单实例监听服务启动失败: {e}")
 
     threading.Thread(target=_listen, daemon=True).start()
 
 def get_log_path():
-    """获取AppData完整路径"""
-    #C:\Users\用户名\AppData\Roaming\DesktopHelper
-    data_dir = os.path.join(os.getenv('APPDATA'), "DesktopHelper")
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    """获取日志及数据目录的完整路径（位于 %APPDATA%）"""
+    appdata = os.getenv('APPDATA')
+    if not appdata:
+        appdata = os.path.expanduser('~\\AppData\\Roaming')  # 兜底
+    data_dir = os.path.join(appdata, "DesktopHelper")
+    try:
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+    except Exception as e:
+        data_dir = os.getcwd()  # 无法创建时退回当前目录，避免程序崩溃
+        logging.error(f"创建数据目录失败，已退回当前目录: {e}")
     
     # 保持你的日志文件名
     log_path = os.path.join(data_dir, "日志.log")
@@ -135,17 +145,20 @@ class DesktopAPP:
 
     def show_ui(self,icon=None,item=None):
         if self.ui:
-            self.ui.show()
+            self.ui.show()   # show() 内部已线程安全地调度到 Tk 主线程
 
 
     def quit_all(self,icon=None,item=None):
         self.engine.stop()
         logging.info("收到退出信号，正在关闭程序...")
         if self.tray_icon:
-            self.tray_icon.stop()
-        if hasattr(self,'ui') and self.ui:
-            self.ui.destroy()
-        sys.exit(0)
+            try:
+                self.tray_icon.stop()
+            except Exception as e:
+                logging.error(f"停止托盘异常: {e}")
+        # 无论从托盘线程还是 UI 主线程调用，都确保真正退出进程。
+        # sys.exit 在非主线程中只会终止当前线程，无法结束整个进程。
+        os._exit(0)
         
 
 

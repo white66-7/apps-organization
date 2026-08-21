@@ -25,7 +25,7 @@ def enable_auto_start():
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, get_app_command())
         winreg.CloseKey(key)
-        logging.error("成功写入启动注册表")
+        logging.info("已写入开机自启动注册表")
         return True
     except Exception as e:
         logging.error(f"写入启动注册表失败：{e}")
@@ -42,7 +42,7 @@ def disable_auto_start():
         winreg.CloseKey(key)
         return True
     except Exception as e:
-        print(f"关闭自启动失败: {e}")
+        logging.error(f"关闭自启动失败: {e}")
         return False
 
 def is_auto_start_enabled():
