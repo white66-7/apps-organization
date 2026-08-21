@@ -46,12 +46,24 @@ def disable_auto_start():
         return False
 
 def is_auto_start_enabled():
-    """检查状态"""
+    """检查开机自启是否已启用（基于注册表真实状态）
+
+    返回 True/False；当遇到权限等 IO 异常时返回 None（状态未知），
+    避免把“查询失败”误报成“已关闭”。"""
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
-        winreg.QueryValueEx(key, APP_NAME)
-        winreg.CloseKey(key)
-        return True
-    except:
+        try:
+            winreg.QueryValueEx(key, APP_NAME)
+            found = True
+        except FileNotFoundError:
+            found = False
+        finally:
+            winreg.CloseKey(key)
+        return found
+    except FileNotFoundError:
+        # Run 键本身不存在 → 必然未启用
         return False
+    except OSError as e:
+        logging.error(f"查询开机自启状态失败: {e}")
+        return None

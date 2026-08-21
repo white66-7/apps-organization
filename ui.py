@@ -61,8 +61,9 @@ class SettingsWindow:
         left_side = ttk.Frame(content_box)
         left_side.pack(side=tk.LEFT, fill=tk.Y)
 
-        #开机自启动开关
-        self.auto_start_var = tk.BooleanVar(value=is_auto_start_enabled())
+        #开机自启动开关（初值先给 False，随后由 poller 在后台异步校准真实注册表状态，避免启动卡顿）
+        initial = is_auto_start_enabled()
+        self.auto_start_var = tk.BooleanVar(value=bool(initial))
 
         ttk.Checkbutton(left_side, text="开机自动启动", variable=self.auto_start_var,
                         command=self.update_auto_start_status).pack(pady=5, anchor="w")
@@ -106,11 +107,20 @@ class SettingsWindow:
         
         self.root.attributes("-topmost", False)
 
+        # 启动“实时同步”轮询：定时回读自启动与日志状态，消除界面滞后
+        self.poller_after_id = None
+        self._start_poller()
+
 
     def update_log_info_display(self):
-        """更新按钮上显示的日志大小"""
-        size_str = self.engine.get_log_size_str()
-        self.log_btn_var.set(f"查看运行日志 ({size_str})")
+        """更新按钮上显示的日志大小（poller 会定时调用，需容忍控件未就绪）"""
+        if not hasattr(self, 'log_btn_var'):
+            return
+        try:
+            size_str = self.engine.get_log_size_str()
+            self.log_btn_var.set(f"查看运行日志 ({size_str})")
+        except Exception as e:
+            logging.debug(f"刷新日志显示失败: {e}")
 
     def handle_clear_log(self):
         """清空日志并立即刷新显示"""
@@ -179,12 +189,51 @@ class SettingsWindow:
         except:
             pass
 
-    # UI复选框点击时触发
+    # UI复选框点击时触发：执行写入后回读注册表，用真实结果校准勾选状态
     def update_auto_start_status(self):
-        if self.auto_start_var.get():
-            enable_auto_start()
-        else:
-            disable_auto_start()
+        want = self.auto_start_var.get()
+        try:
+            ok = enable_auto_start() if want else disable_auto_start()
+            if not ok:
+                logging.error("自启动开关写入注册表失败")
+        except Exception as e:
+            ok = False
+            logging.error(f"自启动开关操作异常: {e}")
+        # 回读注册表真实状态并据此强制校正勾选，避免界面与实际情况脱节
+        self.root.after(0, lambda: self._apply_auto_start_state(force=not ok))
+
+    def _apply_auto_start_state(self, force=False):
+        """把自启动实际注册表状态同步到复选框。force=True 时无条件强制校正。"""
+        if not self.root or not hasattr(self, 'auto_start_var'):
+            return
+        state = is_auto_start_enabled()
+        checked = self.auto_start_var.get()
+        if force or state is not None and bool(state) != checked:
+            # 仅当用户没有正在操作开关时自动纠正
+            actual = True if state is True else False
+            if actual != checked:
+                self.auto_start_var.set(actual)
+                logging.info(f"开机自启动状态已同步为: {'启用' if actual else '关闭'}")
+
+    def _start_poller(self):
+        """启动主线程内的定时轮询，实时同步自启动与日志状态。"""
+        self._poll_tick()
+
+    def _poll_tick(self):
+        if not self.root:
+            return
+        try:
+            # 回读自启动状态（异步校正，不阻塞）
+            self._apply_auto_start_state(force=False)
+            # 实时刷新日志大小显示
+            self.update_log_info_display()
+        except Exception as e:
+            logging.debug(f"实时同步刷新失败: {e}")
+        # 每隔 2 秒再同步一次
+        try:
+            self.poller_after_id = self.root.after(2000, self._poll_tick)
+        except Exception:
+            self.poller_after_id = None
 
     def hide(self):
         if self.root:
@@ -192,6 +241,13 @@ class SettingsWindow:
 
     def destroy(self):
         if self.root:
+            poller_id = getattr(self, 'poller_after_id', None)
+            if poller_id is not None:
+                try:
+                    self.root.after_cancel(poller_id)
+                except Exception:
+                    pass
+            self.poller_after_id = None
             self.root.quit()
             self.root.destroy()
             self.root = None

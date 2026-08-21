@@ -5,7 +5,7 @@ DesktopHelper42 是一款轻量级的 Windows 桌面美化工具。通过双击�
 <img width="400" height="300" alt="video-to-gif-1786348654977" src="https://github.com/user-attachments/assets/3ce0deef-efad-43f2-a0a6-1430e6980cd0" />
 
 
-## ✨ 功能特性
+##  功能特性
 
 - **双击显隐图标**：双击桌面空白处即可切换图标显示状态，支持平滑的淡出动画。
 - **监听**：采用异步队列和双线程处理鼠标事件。
@@ -16,7 +16,7 @@ DesktopHelper42 是一款轻量级的 Windows 桌面美化工具。通过双击�
     - 开机自启动管理。
 - **轻量化**：测试运行内存占用在15-20MB
 
-## 🚀 快速开始
+##  快速开始
 
 ### 环境准备
 - Windows 10 / 11
@@ -29,14 +29,14 @@ pip install pynput pystray Pillow
 ```text
 python main.py
 ```
-## 🛠️ 打包为 EXE
+##  打包为 EXE
 ```bash
 pyinstaller --noconsole --onefile --name "DesktopHelper" --add-data "resources;resources" --icon="resources/icon.ico" main.py
 ```
 
-## 📖 使用说明
+##  使用说明
 隐藏/显示图标：在桌面没有任何窗口遮挡的空白区域双击鼠标左键。
 设置界面：右键点击右下角托盘图标，左键打开或选择“设置”。
 彻底退出：在设置界面点击“彻底退出程序”或通过托盘菜单退出，开机启动请通过手动开启和关闭，这是通过写入注册表实现的功能。
-## ⚠️ 注意事项
+## 注意事项
 安全软件：由于涉及注册表修改（开机自启动）和全局鼠标点击事件监测，部分安全软件可能会拦截，请添加白名单。
