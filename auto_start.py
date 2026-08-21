@@ -4,7 +4,7 @@ import os
 import logging
 
 
-APP_NAME = "DesktopIconHelper"
+APP_NAME = "DesktopIconHelper42"
 
    # 获取启动程序的完整命令
 def get_app_command():
