@@ -31,11 +31,7 @@ def get_current_exe_path():
 
 
 def _first_command_target(cmdline):
-    """从启动命令行中提取第一个程序路径，用于校验目标是否仍存在。
-
-    兼容带引号 / 不带引号，以及 “python.exe \"脚本.py\"” 这类多段命令
-    （多段命令不能整体当成一个路径去 os.path.exists，否则必然误判为不存在）。
-    """
+    """从启动命令行中提取第一个程序路径，用于校验目标是否仍存在。"""
     if not cmdline:
         return None
     import re
@@ -47,16 +43,6 @@ def _first_command_target(cmdline):
 
 
 def _set_startup_approved(enabled):
-    """写入 StartupApproved\\Run 的启用/禁用标记（Task Manager 与登录时以它为准）。
-
-    Windows 状态字节的真实语义（注意与常见误解相反）：
-      - 0x02 / 0x06 = 已启用；标准“启用”写法是 0x02 + 后 8 字节时间戳全 0
-      - 0x03 / 0x07 = 已禁用；禁用时记录禁用时刻的 FILETIME
-    若该值缺失，Windows 默认按“启用”处理。
-
-    千万不要把 0x03 当成“启用”去写——那会让任务管理器显示“已禁用”且登录不启动，
-    界面却仍显示已开启，正是历史上“UI 与实际不对应”的根因。
-    """
     try:
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPROVED_KEY, 0, winreg.KEY_SET_VALUE)
@@ -75,28 +61,6 @@ def _set_startup_approved(enabled):
         return True
     except Exception as e:
         logging.error(f"设置 StartupApproved 失败: {e}")
-        return False
-
-
-def _remove_startup_approved():
-    """删除 StartupApproved\\Run 中本应用的标记。
-
-    禁用自启动时 Run 值已删除，这里顺带清掉残留标记，
-    避免任务管理器保留一条“已禁用”的幽灵启动项。
-    """
-    try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPROVED_KEY, 0, winreg.KEY_SET_VALUE)
-        try:
-            winreg.DeleteValue(key, APP_NAME)
-        except FileNotFoundError:
-            pass
-        finally:
-            winreg.CloseKey(key)
-        return True
-    except FileNotFoundError:
-        return True
-    except Exception as e:
-        logging.error(f"清理 StartupApproved 失败: {e}")
         return False
 
 
@@ -122,40 +86,39 @@ def enable_auto_start():
 
 
 def disable_auto_start():
+    """关闭开机自启（原生方式：保留 Run 项，仅写 StartupApproved 禁用标记）。
+
+    模仿 Windows 任务管理器的行为：启动项本体保留在 Run 键里
+    （任务管理器可见、可一键恢复），只通过 StartupApproved 的 0x03 标记禁用。
+    这样后续版本升级时，只要值名（APP_NAME）不变，新版本重新写入 Run 项
+    也不会把用户“禁用”的偏好悄悄改回“启用”。
+    """
     key_path = RUN_KEY
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
-        try:
-            winreg.DeleteValue(key, APP_NAME)
-        except FileNotFoundError:
-            pass
-        # 同时删除旧版遗留项，保持干净
+        # 注意：不删除本应用（APP_NAME）的 Run 值，保留启动项本体；
+        # 只清理旧版遗留项，保证任务管理器里不会出现重复条目
         try:
             winreg.DeleteValue(key, LEGACY_APP_NAME)
+            logging.info(f"已清理旧版启动项 {LEGACY_APP_NAME}")
         except FileNotFoundError:
             pass
         winreg.CloseKey(key)
-        # 彻底清除 StartupApproved 残留：Run 已删除、批准标记也删掉，
-        # 才是真正“关闭”，也不会留下任务管理器里的幽灵启动项
-        _remove_startup_approved()
-        return True
+    except FileNotFoundError:
+        # Run 键不存在也不影响：下面仍会写入禁用标记，保证幂等
+        pass
     except Exception as e:
         logging.error(f"关闭自启动失败: {e}")
         return False
+    # 写入 StartupApproved 禁用标记（0x03 + 禁用时刻的 FILETIME）
+    if not _set_startup_approved(False):
+        logging.error("写入自启动禁用标记失败")
+        return False
+    logging.info("已关闭开机自启动")
+    return True
 
 
 def is_auto_start_enabled():
-    """检查开机自启是否真正启用（以 Windows 实际生效的状态为准）。
-
-    判定条件（全部满足才算启用）：
-      1. Run 键里存在本应用（APP_NAME）的值；
-      2. Run 值指向的程序路径仍然存在，避免把遗留的已删除路径误判为启用；
-      3. StartupApproved 的标记不是“禁用”（首字节 0x03 / 0x07）；
-         该标记缺失、或首字节为 0x02 / 0x06（启用）时保持启用（Windows 默认行为）。
-
-    返回 True/False；遇到 IO 异常无法判断时返回 None（状态未知），
-    避免把“查询失败”误报成“已禁用”。
-    """
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ)
         try:
